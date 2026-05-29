@@ -36,25 +36,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      # FIXED: Download releases dynamically without patterns, extracting natively via wildcards
-      - name: Deploy Precompiled Utilities via GH CLI
+      # FIXED: Uses "Latest" + "Wildcard" to automatically find the right file (Zip or Tar)
+      # This prevents "No assets match" errors if they change versions or extensions.
+      - name: Deploy Precompiled Utilities (Dynamic)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p bin_tools
-          mkdir -p temp_dl
+          cd bin_tools
           
-          echo "[+] Fetching Subfinder release archive..."
-          cd temp_dl
-          gh release download v2.6.6 --repo projectdiscovery/subfinder
-          tar -xzf subfinder_*_linux_amd64.tar.gz -C ../bin_tools/ subfinder || tar -xzf subfinder_*_Linux_amd64.tar.gz -C ../bin_tools/ subfinder
+          echo "[+] Auto-detecting latest Subfinder..."
+          gh release download -R projectdiscovery/subfinder -p "*linux_amd64*" --clobber
+          find . -name "*linux_amd64*" -name "*.zip" -exec unzip -q -o {} \; 2>/dev/null || true
+          find . -name "*linux_amd64*" -name "*.tar.gz" -exec tar -xzf {} \; 2>/dev/null || true
           
-          echo "[+] Fetching Nuclei release archive..."
-          gh release download v3.2.7 --repo projectdiscovery/nuclei
-          tar -xzf nuclei_*_linux_amd64.tar.gz -C ../bin_tools/ nuclei || tar -xzf nuclei_*_Linux_amd64.tar.gz -C ../bin_tools/ nuclei
+          echo "[+] Auto-detecting latest Nuclei..."
+          gh release download -R projectdiscovery/nuclei -p "*linux_amd64*" --clobber
+          find . -name "*linux_amd64*" -name "*.zip" -exec unzip -q -o {} \; 2>/dev/null || true
+          find . -name "*linux_amd64*" -name "*.tar.gz" -exec tar -xzf {} \; 2>/dev/null || true
           
-          cd ..
-          rm -rf temp_dl
+          # Cleanup raw archives
+          rm -f *.zip *.tar.gz
+          
+          # Verify Extraction
+          if [[ ! -f "./subfinder" ]] || [[ ! -f "./nuclei" ]]; then
+            echo "[-] Critical Error: Tools failed to extract. Listing directory for debug:"
+            ls -R
+            exit 1
+          fi
 
       - name: Configure Executable Permissions
         run: |
@@ -158,7 +167,7 @@ jobs:
                               is_valid = True
                               evidence = f"Target application experienced a core crash (Status code {res.status_code})."
                               
-                          # FIXED: Added explicit list arrays of valid HTTP statuses to fix Python compile drops
+                          # FIXED: Populated structural integer array to close python tracking logic
                           elif res.status_code in [200, 201, 202, 301, 302, 401, 403]:
                               is_valid = True
                               evidence = f"Target verified up and active (Status code {res.status_code})."
