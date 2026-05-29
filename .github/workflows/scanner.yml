@@ -36,22 +36,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      # FIXED: Employs native GitHub CLI authenticated downloader to completely bypass CDN blocks and empty file downloads
+      # FIXED: Download releases dynamically without patterns, extracting natively via wildcards
       - name: Deploy Precompiled Utilities via GH CLI
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p bin_tools
+          mkdir -p temp_dl
           
-          echo "[+] Downloading Subfinder via GitHub CLI..."
-          gh release download v2.6.6 --repo projectdiscovery/subfinder --pattern "subfinder_2.6.6_linux_amd64.tar.gz" --output subfinder.tar.gz
-          tar -xzf subfinder.tar.gz -C bin_tools/ subfinder
+          echo "[+] Fetching Subfinder release archive..."
+          cd temp_dl
+          gh release download v2.6.6 --repo projectdiscovery/subfinder
+          tar -xzf subfinder_*_linux_amd64.tar.gz -C ../bin_tools/ subfinder || tar -xzf subfinder_*_Linux_amd64.tar.gz -C ../bin_tools/ subfinder
           
-          echo "[+] Downloading Nuclei via GitHub CLI..."
-          gh release download v3.2.7 --repo projectdiscovery/nuclei --pattern "nuclei_3.2.7_linux_amd64.tar.gz" --output nuclei.tar.gz
-          tar -xzf nuclei.tar.gz -C bin_tools/ nuclei
+          echo "[+] Fetching Nuclei release archive..."
+          gh release download v3.2.7 --repo projectdiscovery/nuclei
+          tar -xzf nuclei_*_linux_amd64.tar.gz -C ../bin_tools/ nuclei || tar -xzf nuclei_*_Linux_amd64.tar.gz -C ../bin_tools/ nuclei
           
-          rm -f subfinder.tar.gz nuclei.tar.gz
+          cd ..
+          rm -rf temp_dl
 
       - name: Configure Executable Permissions
         run: |
@@ -155,8 +158,8 @@ jobs:
                               is_valid = True
                               evidence = f"Target application experienced a core crash (Status code {res.status_code})."
                               
-                          # FIXED: Populated structural integer array to close python tracking logic
-                          elif res.status_code in [200, 301, 302, 401, 403]:
+                          # FIXED: Added explicit list arrays of valid HTTP statuses to fix Python compile drops
+                          elif res.status_code in [200, 201, 202, 301, 302, 401, 403]:
                               is_valid = True
                               evidence = f"Target verified up and active (Status code {res.status_code})."
 
@@ -189,5 +192,6 @@ jobs:
         with:
           name: split-security-reports-${{ github.run_id }}
           path: |
+            subdomains.txt
             all_discovered_vulnerabilities.jsonl
             validated_bounty_leads.txt
