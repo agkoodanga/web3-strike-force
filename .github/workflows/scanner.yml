@@ -1,0 +1,16 @@
+name: Web3 Domain Scanner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Grab the Code
+      uses: actions/checkout@v4
+
+    - name: Run Nuclei Vulnerability Scanner
+      uses: projectdiscovery/nuclei-action@v3
+      with:
+        args: "-l targets.txt"
