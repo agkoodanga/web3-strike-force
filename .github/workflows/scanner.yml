@@ -41,12 +41,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      # FIXED STEP: Separated installations into explicit, single-line executions
-      - name: Install Toolsets & Configure PATHs
-        run: |
-          go install -v ://github.com
-          go install -v ://github.com
-          echo "$HOME/go/bin" >> $GITHUB_PATH
+      # FIX: Removed multi-line syntax to completely clear malformed string errors
+      - name: Install Subfinder Utility
+        run: go install -v ://github.com
+
+      - name: Install Nuclei Engine
+        run: go install -v ://github.com
+
+      - name: Update System Paths
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Download Remote Security Signatures
         run: nuclei -ut || true
@@ -55,7 +58,6 @@ jobs:
         run: |
           echo "[+] Starting Subdomain stripping on ${{ github.event.inputs.target_domain }}"
           subfinder -d ${{ github.event.inputs.target_domain }} -silent -o subdomains.txt || true
-          
           if [ ! -s subdomains.txt ]; then
             echo "[!] Subfinder returned zero assets. Falling back to base domain."
             echo "${{ github.event.inputs.target_domain }}" > subdomains.txt
@@ -65,7 +67,6 @@ jobs:
         run: |
           echo "[+] Executing low-noise Nuclei scans..."
           touch all_discovered_vulnerabilities.jsonl
-          
           nuclei -l subdomains.txt \
                  -c 5 \
                  -rl 20 \
@@ -147,8 +148,8 @@ jobs:
                               is_valid = True
                               evidence = f"Target application experienced a core crash (Status code {res.status_code})."
                               
-                          # FIXED: Set valid status code checking range to fix the Python syntax error
-                          elif res.status_code in [200, 201, 202, 301, 302]:
+                          # FIX: Populated with correct list of standard active HTTP response tracking filters
+                          elif res.status_code in [200, 301, 302, 401, 403]:
                               is_valid = True
                               evidence = f"Target verified up and active (Status code {res.status_code})."
 
