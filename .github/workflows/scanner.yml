@@ -1,16 +1,20 @@
-name: OKG Web3 Research Engine
+name: OKX Automated Code Explorer
 
 on:
   workflow_dispatch:
 
 jobs:
-  research-audit:
+  explore-and-audit:
     runs-on: ubuntu-latest
     steps:
-    - name: Check out your repository
-      uses: actions/checkout@v4
-
-    - name: Install and Run Semgrep Security Scanner
+    - name: Install Semgrep Security Scanner
       run: |
         pip install semgrep
-        semgrep scan --config="p/security-audit" --config="p/solidity" --config="p/golang" --error
+
+    - name: Clone OKX Wallet Core Repository
+      run: |
+        git clone https://github.com/okx/wallet-core.git target-code
+
+    - name: Run Deep Security Scan
+      run: |
+        semgrep scan --config="p/security-audit" --config="p/solidity" --config="p/golang" target-code/
