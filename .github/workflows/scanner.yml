@@ -36,20 +36,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      # FIXED: Downloads the physical archives entirely to disk first to bypass network streaming and redirect corruption
-      - name: Deploy Precompiled Utilities
+      # FIXED: Employs native GitHub CLI authenticated downloader to completely bypass CDN blocks and empty file downloads
+      - name: Deploy Precompiled Utilities via GH CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p bin_tools
           
-          echo "[+] Downloading Subfinder package archive..."
-          curl -H "User-Agent: Mozilla/5.0" -L -o subfinder.tar.gz "https://github.com"
+          echo "[+] Downloading Subfinder via GitHub CLI..."
+          gh release download v2.6.6 --repo projectdiscovery/subfinder --pattern "subfinder_2.6.6_linux_amd64.tar.gz" --output subfinder.tar.gz
           tar -xzf subfinder.tar.gz -C bin_tools/ subfinder
           
-          echo "[+] Downloading Nuclei package archive..."
-          curl -H "User-Agent: Mozilla/5.0" -L -o nuclei.tar.gz "https://github.com"
+          echo "[+] Downloading Nuclei via GitHub CLI..."
+          gh release download v3.2.7 --repo projectdiscovery/nuclei --pattern "nuclei_3.2.7_linux_amd64.tar.gz" --output nuclei.tar.gz
           tar -xzf nuclei.tar.gz -C bin_tools/ nuclei
           
-          echo "[+] Cleaning up downloaded archive files..."
           rm -f subfinder.tar.gz nuclei.tar.gz
 
       - name: Configure Executable Permissions
@@ -154,8 +155,8 @@ jobs:
                               is_valid = True
                               evidence = f"Target application experienced a core crash (Status code {res.status_code})."
                               
-                          # FIXED: Populated code with explicit list arrays of valid HTTP statuses to fix Python compile drops
-                          elif res.status_code in [200, 201, 202, 301, 302, 401, 403]:
+                          # FIXED: Populated structural integer array to close python tracking logic
+                          elif res.status_code in [200, 301, 302, 401, 403]:
                               is_valid = True
                               evidence = f"Target verified up and active (Status code {res.status_code})."
 
