@@ -36,16 +36,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      # FIXED: Native Linux tar.gz pipeline extracts files perfectly without library mismatch errors
+      # FIXED: Downloads the physical archives entirely to disk first to bypass network streaming and redirect corruption
       - name: Deploy Precompiled Utilities
         run: |
           mkdir -p bin_tools
           
-          echo "[+] Downloading and extracting Subfinder..."
-          curl -sL "https://github.com" | tar -xzf - -C bin_tools/ subfinder
+          echo "[+] Downloading Subfinder package archive..."
+          curl -H "User-Agent: Mozilla/5.0" -L -o subfinder.tar.gz "https://github.com"
+          tar -xzf subfinder.tar.gz -C bin_tools/ subfinder
           
-          echo "[+] Downloading and extracting Nuclei..."
-          curl -sL "https://github.com" | tar -xzf - -C bin_tools/ nuclei
+          echo "[+] Downloading Nuclei package archive..."
+          curl -H "User-Agent: Mozilla/5.0" -L -o nuclei.tar.gz "https://github.com"
+          tar -xzf nuclei.tar.gz -C bin_tools/ nuclei
+          
+          echo "[+] Cleaning up downloaded archive files..."
+          rm -f subfinder.tar.gz nuclei.tar.gz
 
       - name: Configure Executable Permissions
         run: |
@@ -149,7 +154,7 @@ jobs:
                               is_valid = True
                               evidence = f"Target application experienced a core crash (Status code {res.status_code})."
                               
-                          # FIXED: Populated code list array lookup syntax to finalize Python script stability
+                          # FIXED: Populated code with explicit list arrays of valid HTTP statuses to fix Python compile drops
                           elif res.status_code in [200, 201, 202, 301, 302, 401, 403]:
                               is_valid = True
                               evidence = f"Target verified up and active (Status code {res.status_code})."
