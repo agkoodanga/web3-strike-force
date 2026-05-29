@@ -17,4 +17,6 @@ jobs:
 
     - name: Run Deep Security Scan
       run: |
-        semgrep scan --config auto --force-color ./target-code
+        rm -rf .git
+        rm -rf target-code/.git
+        semgrep scan --config auto target-code/
