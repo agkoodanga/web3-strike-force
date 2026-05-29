@@ -1,4 +1,4 @@
-name: OKX Automated Code Explorer
+name: OKX Exhaustive Code Auditor
 
 on:
   workflow_dispatch:
@@ -15,8 +15,19 @@ jobs:
       run: |
         git clone https://github.com/okx/wallet-core.git target-code
 
-    - name: Run Deep Security Scan
+    - name: Run Exhaustive Security Scan
       run: |
+        # Strip git limitations entirely so it cannot ignore hidden files
         rm -rf .git
         rm -rf target-code/.git
-        semgrep scan --config auto target-code/
+
+        # Force exhaustive scanning with specific Web3 and Security rule registries
+        semgrep scan \
+          --config="p/security-audit" \
+          --config="p/solidity" \
+          --config="p/typescript" \
+          --config="p/javascript" \
+          --config="p/secrets" \
+          --no-git-ignore \
+          --verbose \
+          target-code/
