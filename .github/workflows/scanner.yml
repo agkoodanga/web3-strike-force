@@ -36,23 +36,43 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      # FIXED: Download pre-compiled binary packages directly to avoid Go source compilation string traps
+      # FIXED: Native Python bootstrap setup prevents compression extraction and path drops completely
       - name: Deploy Precompiled Utilities
         run: |
-          mkdir -p bin_tools
-          cd bin_tools
+          python - << 'EOF'
+          import os
+          import zipfile
+          import requests
+
+          os.makedirs("bin_tools", exist_ok=True)
           
-          # Fetch and unpack Subfinder
-          wget -q https://github.com
-          unzip -q subfinder_2.6.6_linux_amd64.zip
-          
-          # Fetch and unpack Nuclei
-          wget -q https://github.com
-          unzip -q nuclei_3.2.7_linux_amd64.zip
-          
-          # Ensure execution rights are assigned
-          chmod +x subfinder nuclei
-          echo "$(pwd)" >> $GITHUB_PATH
+          # 1. Download and extract Subfinder
+          subfinder_url = "https://github.com"
+          print("[+] Downloading Subfinder...")
+          r = requests.get(subfinder_url)
+          with open("subfinder.zip", "wb") as f:
+              f.write(r.content)
+          with zipfile.ZipFile("subfinder.zip", 'r') as zip_ref:
+              zip_ref.extractall("bin_tools")
+
+          # 2. Download and extract Nuclei
+          nuclei_url = "https://github.com"
+          print("[+] Downloading Nuclei...")
+          r = requests.get(nuclei_url)
+          with open("nuclei.zip", "wb") as f:
+              f.write(r.content)
+          with zipfile.ZipFile("nuclei.zip", 'r') as zip_ref:
+              zip_ref.extractall("bin_tools")
+
+          print("[+] Cleaning up temporary zip archives...")
+          if os.path.exists("subfinder.zip"): os.remove("subfinder.zip")
+          if os.path.exists("nuclei.zip"): os.remove("nuclei.zip")
+          EOF
+
+      - name: Configure Executable Permissions
+        run: |
+          chmod +x bin_tools/subfinder bin_tools/nuclei
+          echo "$(pwd)/bin_tools" >> $GITHUB_PATH
 
       - name: Download Remote Security Signatures
         run: nuclei -ut || true
@@ -151,8 +171,8 @@ jobs:
                               is_valid = True
                               evidence = f"Target application experienced a core crash (Status code {res.status_code})."
                               
-                          # FIXED: Correctly configured lookup array to verify standard live routing targets
-                          elif res.status_code in [200, 301, 302]:
+                          # FIXED: Corrected code evaluation conditional to track standard live HTTP response targets
+                          elif res.status_code in [200, 201, 204, 301, 302, 401, 403]:
                               is_valid = True
                               evidence = f"Target verified up and active (Status code {res.status_code})."
 
