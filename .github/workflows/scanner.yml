@@ -26,11 +26,6 @@ jobs:
       - name: Checkout Repository Code
         uses: actions/checkout@v4
 
-      - name: Set up Go Environment
-        uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-
       - name: Set up Python Environment
         uses: actions/setup-python@v5
         with:
@@ -41,15 +36,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      # FIXED: Uses clean flat string formats to remove shell truncation traps
-      - name: Install Subfinder Tool
-        run: go install -v ://github.com
-
-      - name: Install Nuclei Tool
-        run: go install -v ://github.com
-
-      - name: Configure System Paths
-        run: echo "$HOME/go/bin" >> $GITHUB_PATH
+      # FIXED: Download pre-compiled binary packages directly to avoid Go source compilation string traps
+      - name: Deploy Precompiled Utilities
+        run: |
+          mkdir -p bin_tools
+          cd bin_tools
+          
+          # Fetch and unpack Subfinder
+          wget -q https://github.com
+          unzip -q subfinder_2.6.6_linux_amd64.zip
+          
+          # Fetch and unpack Nuclei
+          wget -q https://github.com
+          unzip -q nuclei_3.2.7_linux_amd64.zip
+          
+          # Ensure execution rights are assigned
+          chmod +x subfinder nuclei
+          echo "$(pwd)" >> $GITHUB_PATH
 
       - name: Download Remote Security Signatures
         run: nuclei -ut || true
@@ -148,8 +151,8 @@ jobs:
                               is_valid = True
                               evidence = f"Target application experienced a core crash (Status code {res.status_code})."
                               
-                          # FIXED: Populated standard operational status ranges to clear Python engine bugs
-                          elif res.status_code in [200, 201, 301, 302, 401, 403]:
+                          # FIXED: Correctly configured lookup array to verify standard live routing targets
+                          elif res.status_code in [200, 301, 302]:
                               is_valid = True
                               evidence = f"Target verified up and active (Status code {res.status_code})."
 
