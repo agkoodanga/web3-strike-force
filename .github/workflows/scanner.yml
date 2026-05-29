@@ -1,16 +1,16 @@
-name: Web3 Domain Scanner
+name: OKG Web3 Research Engine
 
 on:
   workflow_dispatch:
 
 jobs:
-  hunt:
+  research-audit:
     runs-on: ubuntu-latest
     steps:
-    - name: Grab the Code
+    - name: Check out your repository
       uses: actions/checkout@v4
 
-    - name: Run Nuclei Vulnerability Scanner
-      uses: projectdiscovery/nuclei-action@v3
-      with:
-        args: "-l targets.txt"
+    - name: Install and Run Semgrep Security Scanner
+      run: |
+        pip install semgrep
+        semgrep scan --config="p/security-audit" --config="p/solidity" --config="p/golang" --error
