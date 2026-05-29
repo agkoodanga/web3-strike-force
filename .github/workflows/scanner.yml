@@ -17,4 +17,4 @@ jobs:
 
     - name: Run Deep Security Scan
       run: |
-        semgrep scan --config auto target-code/
+        cd target-code && semgrep scan --config auto
