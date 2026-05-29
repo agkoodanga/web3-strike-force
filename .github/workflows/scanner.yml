@@ -17,4 +17,4 @@ jobs:
 
     - name: Run Deep Security Scan
       run: |
-        semgrep scan --config="p/security-audit" --config="p/solidity" --config="p/golang" target-code/
+        semgrep scan --config auto target-code/
