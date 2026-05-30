@@ -10,7 +10,7 @@ on:
 jobs:
   security_pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 360
     
     steps:
       - name: Maximize Runner Disk Space
@@ -49,6 +49,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
+      - name: Create Runtime Configuration
+        run: |
+          cat <<EOF > resolvers.txt
+          1.1.1.1
+          1.0.0.1
+          8.8.8.8
+          8.8.4.4
+          9.9.9.9
+          EOF
+
       - name: Subdomain Discovery
         run: |
           subfinder -d ${{ github.event.inputs.target_domain }} -all -recursive -silent -rL resolvers.txt -o subdomains.txt || true
@@ -56,16 +66,16 @@ jobs:
       - name: Probing for Active Web Servers
         run: |
           if [ -s subdomains.txt ]; then
-            httpx -l subdomains.txt -sc -title -td -follow-redirects -silent -threads 150 -retries 2 -resolvers resolvers.txt -o active_hosts.txt || true
+            httpx -l subdomains.txt -sc -title -td -follow-redirects -p 80,443,8080,8443 -silent -threads 150 -retries 2 -resolvers resolvers.txt -o active_hosts.txt || true
           else
             echo "No subdomains found."
             touch active_hosts.txt
           fi
 
-      - name: Vulnerability Scanning
+      - name: High-Performance Vulnerability Scanning
         run: |
           if [ -s active_hosts.txt ]; then
-            nuclei -l active_hosts.txt -severity high,critical -rl 100 -bs 10 -silent -jsonl -o all_discovered_vulnerabilities.jsonl || true
+            nuclei -l active_hosts.txt -severity high,critical -rl 150 -bs 25 -c 50 -timeout 10 -stats -si 60 -no-color -jsonl -o all_discovered_vulnerabilities.jsonl || true
           else
             echo "No active hosts to scan."
             touch all_discovered_vulnerabilities.jsonl
