@@ -51,12 +51,12 @@ jobs:
 
       - name: Subdomain Discovery
         run: |
-          subfinder -d ${{ github.event.inputs.target_domain }} -all -recursive -o subdomains.txt || true
+          subfinder -d ${{ github.event.inputs.target_domain }} -all -recursive -silent -rL resolvers.txt -o subdomains.txt || true
 
       - name: Probing for Active Web Servers
         run: |
           if [ -s subdomains.txt ]; then
-            httpx -l subdomains.txt -sc -title -td -follow-redirects -o active_hosts.txt || true
+            httpx -l subdomains.txt -sc -title -td -follow-redirects -silent -threads 150 -retries 2 -resolvers resolvers.txt -o active_hosts.txt || true
           else
             echo "No subdomains found."
             touch active_hosts.txt
@@ -65,7 +65,7 @@ jobs:
       - name: Vulnerability Scanning
         run: |
           if [ -s active_hosts.txt ]; then
-            nuclei -l active_hosts.txt -severity high,critical -rl 100 -bs 10 -stats -silent -jsonl -o all_discovered_vulnerabilities.jsonl || true
+            nuclei -l active_hosts.txt -severity high,critical -rl 100 -bs 10 -silent -jsonl -o all_discovered_vulnerabilities.jsonl || true
           else
             echo "No active hosts to scan."
             touch all_discovered_vulnerabilities.jsonl
@@ -84,3 +84,4 @@ jobs:
             active_hosts.txt
             all_discovered_vulnerabilities.jsonl
             validated_bounty_leads.txt
+            resolvers.txt
