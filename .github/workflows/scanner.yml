@@ -10,7 +10,7 @@ on:
 jobs:
   security_pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 180 
+    timeout-minutes: 300
     
     steps:
       - name: Maximize Runner Disk Space
@@ -26,6 +26,19 @@ jobs:
       - name: Checkout Repository Code
         uses: actions/checkout@v4
 
+      - name: Set up Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Install ProjectDiscovery Tools
+        run: |
+          go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+          go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+          go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
       - name: Set up Python Environment
         uses: actions/setup-python@v5
         with:
@@ -37,23 +50,26 @@ jobs:
           pip install requests
 
       - name: Subdomain Discovery
-        uses: projectdiscovery/subfinder-action@main
-        with:
-          domain: ${{ github.event.inputs.target_domain }}
-          output: subdomains.txt
+        run: |
+          subfinder -d ${{ github.event.inputs.target_domain }} -all -recursive -o subdomains.txt || true
 
       - name: Probing for Active Web Servers
-        uses: projectdiscovery/httpx-action@main
-        with:
-          list: subdomains.txt
-          output: active_hosts.txt
+        run: |
+          if [ -s subdomains.txt ]; then
+            httpx -l subdomains.txt -sc -title -td -follow-redirects -o active_hosts.txt || true
+          else
+            echo "No subdomains found."
+            touch active_hosts.txt
+          fi
 
       - name: Vulnerability Scanning
-        uses: projectdiscovery/nuclei-action@v3
-        with:
-          list: active_hosts.txt
-          severity: high,critical
-          args: "-rl 100 -bs 10 -no-color -jsonl -o all_discovered_vulnerabilities.jsonl"
+        run: |
+          if [ -s active_hosts.txt ]; then
+            nuclei -l active_hosts.txt -severity high,critical -rl 100 -bs 10 -stats -silent -jsonl -o all_discovered_vulnerabilities.jsonl || true
+          else
+            echo "No active hosts to scan."
+            touch all_discovered_vulnerabilities.jsonl
+          fi
 
       - name: Run Python Active Validation Engine
         run: python scripts/validator.py
