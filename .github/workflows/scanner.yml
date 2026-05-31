@@ -10,7 +10,7 @@ on:
 jobs:
   security_pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 180 
+    timeout-minutes: 360
     
     steps:
       - name: Maximize Runner Disk Space
@@ -26,6 +26,19 @@ jobs:
       - name: Checkout Repository Code
         uses: actions/checkout@v4
 
+      - name: Set up Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Install ProjectDiscovery Tools
+        run: |
+          go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+          go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+          go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
       - name: Set up Python Environment
         uses: actions/setup-python@v5
         with:
@@ -36,164 +49,37 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      # FIXED: Uses "Latest" + "Wildcard" to automatically find the right file (Zip or Tar)
-      # This prevents "No assets match" errors if they change versions or extensions.
-      - name: Deploy Precompiled Utilities (Dynamic)
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Subdomain Discovery
         run: |
-          mkdir -p bin_tools
-          cd bin_tools
-          
-          echo "[+] Auto-detecting latest Subfinder..."
-          gh release download -R projectdiscovery/subfinder -p "*linux_amd64*" --clobber
-          find . -name "*linux_amd64*" -name "*.zip" -exec unzip -q -o {} \; 2>/dev/null || true
-          find . -name "*linux_amd64*" -name "*.tar.gz" -exec tar -xzf {} \; 2>/dev/null || true
-          
-          echo "[+] Auto-detecting latest Nuclei..."
-          gh release download -R projectdiscovery/nuclei -p "*linux_amd64*" --clobber
-          find . -name "*linux_amd64*" -name "*.zip" -exec unzip -q -o {} \; 2>/dev/null || true
-          find . -name "*linux_amd64*" -name "*.tar.gz" -exec tar -xzf {} \; 2>/dev/null || true
-          
-          # Cleanup raw archives
-          rm -f *.zip *.tar.gz
-          
-          # Verify Extraction
-          if [[ ! -f "./subfinder" ]] || [[ ! -f "./nuclei" ]]; then
-            echo "[-] Critical Error: Tools failed to extract. Listing directory for debug:"
-            ls -R
-            exit 1
+          # Use the resolvers.txt file from the repository
+          subfinder -d ${{ github.event.inputs.target_domain }} -all -recursive -silent -rL resolvers.txt -o subdomains.txt || true
+          [ -f subdomains.txt ] || touch subdomains.txt
+          echo "[+] Found $(wc -l < subdomains.txt) subdomains."
+
+      - name: Probing for Active Web Servers
+        run: |
+          if [ -s subdomains.txt ]; then
+            httpx -l subdomains.txt -sc -title -td -follow-redirects -p 80,443,8080,8443,8888,9000,9443 -silent -threads 200 -retries 2 -resolvers resolvers.txt -o active_hosts.txt || true
+          else
+            echo "[-] No subdomains found to probe."
+            touch active_hosts.txt
           fi
+          [ -f active_hosts.txt ] || touch active_hosts.txt
+          echo "[+] Found $(wc -l < active_hosts.txt) active web hosts."
 
-      - name: Configure Executable Permissions
+      - name: High-Performance Vulnerability Scanning
         run: |
-          chmod +x bin_tools/subfinder bin_tools/nuclei
-          echo "$(pwd)/bin_tools" >> $GITHUB_PATH
-
-      - name: Download Remote Security Signatures
-        run: bin_tools/nuclei -ut || true
-
-      - name: Domain Stripping & Asset Discovery
-        run: |
-          echo "[+] Starting Subdomain stripping on ${{ github.event.inputs.target_domain }}"
-          subfinder -d ${{ github.event.inputs.target_domain }} -silent -o subdomains.txt || true
-          if [ ! -s subdomains.txt ]; then
-            echo "[!] Subfinder returned zero assets. Falling back to base domain."
-            echo "${{ github.event.inputs.target_domain }}" > subdomains.txt
+          if [ -s active_hosts.txt ]; then
+            nuclei -l active_hosts.txt -severity medium,high,critical -rl 150 -bs 25 -c 50 -timeout 10 -stats -si 60 -no-color -jsonl -o all_discovered_vulnerabilities.jsonl || true
+          else
+            echo "[-] No active hosts to scan."
+            touch all_discovered_vulnerabilities.jsonl
           fi
-
-      - name: Throttled Vulnerability Injection & Scan
-        run: |
-          echo "[+] Executing low-noise Nuclei scans..."
-          touch all_discovered_vulnerabilities.jsonl
-          nuclei -l subdomains.txt \
-                 -c 5 \
-                 -rl 20 \
-                 -bs 2 \
-                 -severity high,critical \
-                 -no-color \
-                 -jsonl \
-                 -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36" \
-                 -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
-                 -H "Accept-Language: en-US,en;q=0.5" \
-                 -o all_discovered_vulnerabilities.jsonl || echo "Nuclei completed with safe adjustments"
-
-      - name: Build Local Python Validation Logic
-        run: |
-          cat << 'EOF' > validator.py
-          import json
-          import os
-          import time
-          import random
-          import requests
-
-          INPUT_FILE = "all_discovered_vulnerabilities.jsonl"
-          OUTPUT_FILE = "validated_bounty_leads.txt"
-
-          SECRET_KEYWORDS = ["aws_secret", "api_key", "secret_key", "db_password", "database_url", "private_key", "env"]
-
-          BROWSER_HEADERS = {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-              "Accept-Language": "en-US,en;q=0.9",
-              "Accept-Encoding": "gzip, deflate, br",
-              "Connection": "keep-alive"
-          }
-
-          if not os.path.exists(INPUT_FILE) or os.path.getsize(INPUT_FILE) == 0:
-              print("[-] No potential vulnerabilities found to validate.")
-              with open(OUTPUT_FILE, "w") as f:
-                  f.write("No validated leads found during this run.")
-              exit(0)
-
-          print("[+] Python Browser Validation Engine Active. Verifying leads...")
-          validated_count = 0
-
-          with open(INPUT_FILE, "r") as infile, open(OUTPUT_FILE, "w") as outfile:
-              for line in infile:
-                  if not line.strip():
-                      continue
-                  try:
-                      data = json.loads(line.strip())
-                      target_url = data.get("matched-at") or data.get("host")
-                      vuln_id = data.get("template-id")
-                      severity = data.get("info", {}).get("severity", "unknown")
-                      
-                      if not target_url:
-                          continue
-                          
-                      if not target_url.startswith(("http://", "https://")):
-                          target_url = f"https://{target_url}"
-
-                      time.sleep(random.uniform(0.5, 1.5))
-
-                      print(f"[*] Simulating browser verification to: {target_url}")
-                      try:
-                          res = requests.get(target_url, timeout=12, allow_redirects=True, headers=BROWSER_HEADERS)
-                          
-                          is_valid = False
-                          evidence = ""
-                          response_lower = res.text.lower()
-                          
-                          if any(keyword in response_lower for keyword in SECRET_KEYWORDS):
-                              is_valid = True
-                              evidence = "Confirmed highly sensitive configuration leak signature in response body."
-                          
-                          elif res.status_code == 200 and ("dashboard" in response_lower or "admin" in response_lower):
-                              is_valid = True
-                              evidence = "Exposed asset dashboard returned status 200 OK."
-                              
-                          elif res.status_code >= 500:
-                              is_valid = True
-                              evidence = f"Target application experienced a core crash (Status code {res.status_code})."
-                              
-                          # FIXED: Populated structural integer array to close python tracking logic
-                          elif res.status_code in [200, 201, 202, 301, 302, 401, 403]:
-                              is_valid = True
-                              evidence = f"Target verified up and active (Status code {res.status_code})."
-
-                          if is_valid:
-                              validated_count += 1
-                              log_entry = f"=== VALIDATED BOUNTY LEAD #{validated_count} ===\n" \
-                                          f"Target: {target_url}\n" \
-                                          f"Vulnerability ID: {vuln_id}\n" \
-                                          f"Severity: {severity}\n" \
-                                          f"Verification Evidence: {evidence}\n" \
-                                          f"========================================\n\n"
-                              outfile.write(log_entry)
-                              print(f"[+] SUCCESS: Verified legitimate response structure on {target_url}")
-                              
-                      except requests.exceptions.RequestException as e:
-                          print(f"[-] Skipped validation check: {e}")
-                          
-                  except Exception as err:
-                      print(f"[-] Error processing metadata line: {err}")
-
-          print(f"[+] Validation complete. {validated_count} clean leads preserved.")
-          EOF
+          [ -f all_discovered_vulnerabilities.jsonl ] || touch all_discovered_vulnerabilities.jsonl
+          echo "[+] Discovered $(wc -l < all_discovered_vulnerabilities.jsonl) potential vulnerabilities."
 
       - name: Run Python Active Validation Engine
-        run: python validator.py
+        run: python scripts/validator.py
 
       - name: Archive Separate Intelligence Artifacts
         uses: actions/upload-artifact@v4
@@ -202,5 +88,7 @@ jobs:
           name: split-security-reports-${{ github.run_id }}
           path: |
             subdomains.txt
+            active_hosts.txt
             all_discovered_vulnerabilities.jsonl
             validated_bounty_leads.txt
+            resolvers.txt
