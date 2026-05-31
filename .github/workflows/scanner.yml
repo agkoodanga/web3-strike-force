@@ -49,37 +49,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Create Runtime Configuration
-        run: |
-          cat <<EOF > resolvers.txt
-          1.1.1.1
-          1.0.0.1
-          8.8.8.8
-          8.8.4.4
-          9.9.9.9
-          EOF
-
       - name: Subdomain Discovery
         run: |
+          # Use the resolvers.txt file from the repository
           subfinder -d ${{ github.event.inputs.target_domain }} -all -recursive -silent -rL resolvers.txt -o subdomains.txt || true
+          [ -f subdomains.txt ] || touch subdomains.txt
+          echo "[+] Found $(wc -l < subdomains.txt) subdomains."
 
       - name: Probing for Active Web Servers
         run: |
           if [ -s subdomains.txt ]; then
-            httpx -l subdomains.txt -sc -title -td -follow-redirects -p 80,443,8080,8443 -silent -threads 150 -retries 2 -resolvers resolvers.txt -o active_hosts.txt || true
+            httpx -l subdomains.txt -sc -title -td -follow-redirects -p 80,443,8080,8443,8888,9000,9443 -silent -threads 200 -retries 2 -resolvers resolvers.txt -o active_hosts.txt || true
           else
-            echo "No subdomains found."
+            echo "[-] No subdomains found to probe."
             touch active_hosts.txt
           fi
+          [ -f active_hosts.txt ] || touch active_hosts.txt
+          echo "[+] Found $(wc -l < active_hosts.txt) active web hosts."
 
       - name: High-Performance Vulnerability Scanning
         run: |
           if [ -s active_hosts.txt ]; then
-            nuclei -l active_hosts.txt -severity high,critical -rl 150 -bs 25 -c 50 -timeout 10 -stats -si 60 -no-color -jsonl -o all_discovered_vulnerabilities.jsonl || true
+            nuclei -l active_hosts.txt -severity medium,high,critical -rl 150 -bs 25 -c 50 -timeout 10 -stats -si 60 -no-color -jsonl -o all_discovered_vulnerabilities.jsonl || true
           else
-            echo "No active hosts to scan."
+            echo "[-] No active hosts to scan."
             touch all_discovered_vulnerabilities.jsonl
           fi
+          [ -f all_discovered_vulnerabilities.jsonl ] || touch all_discovered_vulnerabilities.jsonl
+          echo "[+] Discovered $(wc -l < all_discovered_vulnerabilities.jsonl) potential vulnerabilities."
 
       - name: Run Python Active Validation Engine
         run: python scripts/validator.py
